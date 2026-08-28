@@ -2,7 +2,7 @@
 import { EnvVars } from "./app/config/env";
 import app from "./app";
 import { prisma } from "./shared/prisma";
-import { seedAdmin } from "./shared/seedadmin";
+import { seedAdmin } from "./shared/seedAdmin";
 
 
 const startServer = async () => {

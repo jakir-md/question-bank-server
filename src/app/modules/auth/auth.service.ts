@@ -21,12 +21,15 @@ export const loginService = async (payload: {
     const user = await prisma.user.findUnique({
       where: {
         email: email,
-        isActive: true,
       },
     });
 
-    if (!user) {
-      throw new ApiError(404, "User not found");
+    if (!user || !user.isActive) {
+      throw new ApiError(404, "User not found or inactive");
+    }
+
+    if (!user.password) {
+      throw new ApiError(401, "User has no password set");
     }
 
     const match = await bcrypt.compare(password, user.password);
@@ -110,8 +113,8 @@ const changePassword = async (userId: string, payload: any) => {
     const { currentPassword, newPassword } = payload;
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      throw new ApiError(404, "User not found!");
+    if (!user || !user.password) {
+      throw new ApiError(404, "User not found or has no password set!");
     }
 
     const isPasswordMatched = await bcrypt.compare(
@@ -141,13 +144,13 @@ const changePassword = async (userId: string, payload: any) => {
 const forgotPassword = async (email: string) => {
   try {
     const user = await prisma.user.findUnique({
-      where: { email, isActive: true },
+      where: { email },
     });
 
-    if (!user) {
+    if (!user || !user.isActive) {
       throw new ApiError(
         404,
-        "No user found with this email or you're expired!",
+        "No active user found with this email!",
       );
     }
 

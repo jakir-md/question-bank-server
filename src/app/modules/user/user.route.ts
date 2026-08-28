@@ -1,37 +1,20 @@
-// src/app/modules/customer/user/user.route.ts
 import express from "express";
 import {
-  bulkUploadAuthorityProvidedCredentials,
-  bulkUploadStudentProvidedCredentials,
   createUser,
   deleteUser,
   getAllUsers,
-  searchStudentByEmail,
+  getUserById,
   updateUser,
 } from "./user.controller";
-import { auth } from "../../../auth/auth.middleware";
-import multer from "multer";
+import { auth } from "../auth/auth.middleware";
+import { Role } from "@prisma/client";
+
 const router = express.Router();
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
-router.post("/", auth("HALLADMIN"), createUser);
-router.get("/", auth("HALLADMIN"), getAllUsers);
-router.get("/search/student", auth("HALLADMIN"), searchStudentByEmail);
-router.put("/:id", auth("HALLADMIN"), updateUser);
-router.delete("/:id", auth("HALLADMIN"), deleteUser);
 
-router.post(
-  "/bulk-upload/authority-credentials",
-  auth("HALLADMIN"),
-  upload.single("file"),
-  bulkUploadAuthorityProvidedCredentials,
-);
-
-router.post(
-  "/bulk-upload/student-credentials",
-  auth("HALLADMIN"),
-  upload.single("file"),
-  bulkUploadStudentProvidedCredentials,
-);
+router.post("/", auth(Role.ADMIN), createUser);
+router.get("/", auth(Role.ADMIN), getAllUsers);
+router.get("/:id", auth(Role.ADMIN), getUserById);
+router.patch("/:id", auth(Role.ADMIN), updateUser);
+router.delete("/:id", auth(Role.ADMIN), deleteUser);
 
 export const UserRoutes = router;

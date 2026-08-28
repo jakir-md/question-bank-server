@@ -6,7 +6,9 @@ datasource db {
   provider = "postgresql"
 }
 
-// --- Enums ---
+// ==========================================
+// User & Auth Enums
+// ==========================================
 
 enum Role {
   ADMIN
@@ -14,10 +16,160 @@ enum Role {
   DRIVER
 }
 
-// --- Models ---
+// ==========================================
+// Curriculum Taxonomy Enums
+// ==========================================
+
+/**
+ * Importance level for a curriculum topic
+ */
+enum ImportanceLevel {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+/**
+ * Difficulty tier for a curriculum topic
+ */
+enum DifficultyLevel {
+  EASY
+  MEDIUM
+  HARD
+}
+
+// ==========================================
+// User Model
+// ==========================================
 
 model User {
   id             String    @id @default(uuid())
   name           String
   email          String    @unique
+  password       String?
+  phone          String?   @unique
+  role           Role      @default(STUDENT)
+  isActive       Boolean   @default(true)
+  resetOtp       String?
+  resetOtpExpiry DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("users")
+}
+
+// ==========================================
+// Curriculum Taxonomy Models
+// ==========================================
+
+/**
+ * EducationLevel (Tier 1 of Curriculum Taxonomy)
+ * Represents an academic tier, class, or competitive exam stream
+ * (e.g., "HSC Science", "SSC", "Medical Admission", "Class 9-10")
+ */
+model EducationLevel {
+  id          String    @id @default(uuid())
+  name        String
+  code        String    @unique
+  slug        String    @unique
+  description String?
+  icon        String?
+  color       String?
+  orderIndex  Int       @default(0)
+  isActive    Boolean   @default(true)
+  isPublished Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  subjects    Subject[]
+
+  @@map("education_levels")
+}
+
+/**
+ * Subject (Tier 2 of Curriculum Taxonomy)
+ * Represents a distinct course or subject within an Education Level
+ * (e.g., "Physics 1st Paper", "Higher Mathematics", "Chemistry 2nd Paper")
+ */
+model Subject {
+  id               String         @id @default(uuid())
+  educationLevelId String
+  name             String
+  code             String
+  slug             String
+  description      String?
+  icon             String?
+  color            String?
+  paper            String?
+  subjectCode      String?
+  orderIndex       Int            @default(0)
+  isActive         Boolean        @default(true)
+  isPublished      Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  educationLevel   EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Cascade)
+  chapters         Chapter[]
+
+  @@unique([educationLevelId, code])
+  @@unique([educationLevelId, slug])
+  @@map("subjects")
+}
+
+/**
+ * Chapter (Tier 3 of Curriculum Taxonomy)
+ * Represents a major unit or chapter under a Subject
+ * (e.g., "Chapter 2: Vectors", "Chapter 4: Newtonian Mechanics")
+ */
+model Chapter {
+  id                  String    @id @default(uuid())
+  subjectId           String
+  chapterNumber       Int?
+  name                String
+  slug                String
+  description         String?
+  totalEstimatedHours Float?
+  weightage           Float?
+  orderIndex          Int       @default(0)
+  isActive            Boolean   @default(true)
+  isPublished         Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  subject             Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topics              Topic[]
+
+  @@unique([subjectId, slug])
+  @@map("chapters")
+}
+
+/**
+ * Topic (Tier 4 of Curriculum Taxonomy)
+ * Represents a specific learning topic or sub-topic within a Chapter
+ * (e.g., "Vector Resolution", "Dot & Cross Product", "Relative Velocity")
+ */
+model Topic {
+  id                 String          @id @default(uuid())
+  chapterId          String
+  parentTopicId      String?
+  topicNumber        String?
+  name               String
+  slug               String
+  description        String?
+  learningObjectives String[]        @default([])
+  importanceLevel    ImportanceLevel @default(MEDIUM)
+  difficultyLevel    DifficultyLevel @default(MEDIUM)
+  orderIndex         Int             @default(0)
+  isActive           Boolean         @default(true)
+  isPublished        Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  chapter            Chapter         @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  parentTopic        Topic?          @relation("SubTopics", fields: [parentTopicId], references: [id], onDelete: SetNull)
+  subTopics          Topic[]         @relation("SubTopics")
+
+  @@unique([chapterId, slug])
+  @@map("topics")
 }
