@@ -1,16 +1,22 @@
-// src/app/auth/auth.router.ts
+// src/app/modules/auth/auth.router.ts
 import express from "express";
-import { AuthController, changePassword, getMe, login, logout, refreshToken } from "./auth.controller";
+import { AuthController } from "./auth.controller";
 import { auth } from "./auth.middleware";
 
 const router = express.Router();
 
-router.post("/login", login);
-router.post("/logout", logout);
-router.post("/refresh-token", refreshToken);
-router.get("/me",auth(),  getMe);
-router.patch("/change-password", auth(), changePassword);
-router.post("/forgot-password", AuthController.forgotPassword);
-router.post("/reset-password", AuthController.resetPassword);
+// Student OTP-based login (2-step)
+router.post("/send-otp", AuthController.sendOtp);
+router.post("/verify-otp", AuthController.verifyOtpAndLogin);
+
+// Admin phone + password login
+router.post("/login", AuthController.adminLogin);
+
+// Token management
+router.post("/refresh-token", AuthController.refreshToken);
+router.post("/logout", AuthController.logout);
+
+// Protected routes
+router.get("/me", auth(), AuthController.getMe);
 
 export const AuthRoutes = router;

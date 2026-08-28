@@ -9,7 +9,7 @@ import {
   searchStudentByEmail,
   updateUser,
 } from "./user.controller";
-import { auth } from "../../../auth/auth.middleware";
+import { auth } from "../auth/auth.middleware";
 import multer from "multer";
 const router = express.Router();
 const storage = multer.memoryStorage();
