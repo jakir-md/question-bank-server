@@ -83,6 +83,7 @@ model EducationLevel {
   updatedAt   DateTime  @updatedAt
 
   subjects    Subject[]
+  questions   Question[]
 
   @@map("education_levels")
 }
@@ -111,6 +112,7 @@ model Subject {
 
   educationLevel   EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Cascade)
   chapters         Chapter[]
+  questions        Question[]
 
   @@unique([educationLevelId, code])
   @@unique([educationLevelId, slug])
@@ -139,6 +141,7 @@ model Chapter {
 
   subject             Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   topics              Topic[]
+  questions           Question[]
 
   @@unique([subjectId, slug])
   @@map("chapters")
@@ -169,7 +172,123 @@ model Topic {
   chapter            Chapter         @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   parentTopic        Topic?          @relation("SubTopics", fields: [parentTopicId], references: [id], onDelete: SetNull)
   subTopics          Topic[]         @relation("SubTopics")
+  questions          Question[]
 
   @@unique([chapterId, slug])
   @@map("topics")
+}
+
+// ==========================================
+// Metadata & Tagging System Enums & Models
+// ==========================================
+
+/**
+ * Categorization domains for custom metadata tags
+ */
+enum TagCategory {
+  BOARD_EXAM        // e.g., Dhaka Board 2024, Rajshahi Board 2023, Chattogram Board 2022
+  CADET_COLLEGE     // e.g., Faujdarhat Cadet College, Mirzapur Cadet College, Barishal Cadet College
+  ADMISSION_TEST    // e.g., BUET Admission, Medical Admission, DU A-Unit, IBA
+  INSTITUTION       // e.g., Notre Dame College, Holy Cross College, Viqarunnisa Noon College
+  DIFFICULTY        // e.g., Easy, Medium, Hard, Olympiad Level
+  EXAM_YEAR         // e.g., 2024, 2023, 2022, 2021
+  TOPIC_SPECIAL     // e.g., Formula Based, Conceptual, Tricky, Graph Based, Calculation Intensive
+  CUSTOM            // Custom user-defined tags
+}
+
+/**
+ * Supported Question formats
+ */
+enum QuestionType {
+  MCQ
+  CQ
+  SHORT_ANSWER
+  TRUE_FALSE
+}
+
+/**
+ * Tag Model (Metadata & Tagging System)
+ * Represents a reusable metadata tag with categorization, styling, and indexing.
+ */
+model Tag {
+  id          String        @id @default(uuid())
+  name        String
+  slug        String        @unique
+  category    TagCategory   @default(CUSTOM)
+  description String?
+  color       String?       // Hex color code (e.g. #3B82F6) for UI badge display
+  icon        String?       // Lucide icon name or icon key
+  usageCount  Int           @default(0) // Denormalized counter for quick ranking & popular tag lookups
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  questions   QuestionTag[]
+
+  @@index([name])
+  @@index([slug])
+  @@index([category, isActive])
+  @@index([usageCount(sort: Desc)])
+  @@map("tags")
+}
+
+/**
+ * Question Model
+ * Core entity for question bank items, linked to Curriculum Taxonomy & Metadata Tags
+ */
+model Question {
+  id               String          @id @default(uuid())
+  educationLevelId String?
+  subjectId        String?
+  chapterId        String?
+  topicId          String?
+  questionText     String
+  questionType     QuestionType    @default(MCQ)
+  options          Json?           // Array of MCQ options e.g. [{ id: "A", text: "...", isCorrect: true }]
+  correctAnswer    String?         // Option ID or answer key
+  explanation      String?         // Solution / explanation
+  difficulty       DifficultyLevel @default(MEDIUM)
+  marks            Float           @default(1.0)
+  negativeMarks    Float           @default(0.25)
+  isActive         Boolean         @default(true)
+  isPublished      Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  // Curriculum Taxonomy Relations
+  educationLevel   EducationLevel? @relation(fields: [educationLevelId], references: [id], onDelete: SetNull)
+  subject          Subject?        @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  chapter          Chapter?        @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  topic            Topic?          @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  // Tag Relations
+  tags             QuestionTag[]
+
+  @@index([educationLevelId])
+  @@index([subjectId])
+  @@index([chapterId])
+  @@index([topicId])
+  @@index([questionType])
+  @@index([difficulty])
+  @@index([isActive, isPublished])
+  @@map("questions")
+}
+
+/**
+ * QuestionTag Junction Model
+ * Explicit many-to-many relationship table between Questions and Tags with fast indexed lookups
+ */
+model QuestionTag {
+  id         String   @id @default(uuid())
+  questionId String
+  tagId      String
+  createdAt  DateTime @default(now())
+
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, tagId])
+  @@index([questionId])
+  @@index([tagId])
+  @@map("question_tags")
 }
