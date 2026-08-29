@@ -82,8 +82,9 @@ model EducationLevel {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  subjects    Subject[]
-  questions   Question[]
+  subjects         Subject[]
+  questions        Question[]
+  questionContexts QuestionContext[]
 
   @@map("education_levels")
 }
@@ -94,7 +95,7 @@ model EducationLevel {
  * (e.g., "Physics 1st Paper", "Higher Mathematics", "Chemistry 2nd Paper")
  */
 model Subject {
-  id               String         @id @default(uuid())
+  id               String            @id @default(uuid())
   educationLevelId String
   name             String
   code             String
@@ -104,15 +105,16 @@ model Subject {
   color            String?
   paper            String?
   subjectCode      String?
-  orderIndex       Int            @default(0)
-  isActive         Boolean        @default(true)
-  isPublished      Boolean        @default(false)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  orderIndex       Int               @default(0)
+  isActive         Boolean           @default(true)
+  isPublished      Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  educationLevel   EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Cascade)
+  educationLevel   EducationLevel    @relation(fields: [educationLevelId], references: [id], onDelete: Cascade)
   chapters         Chapter[]
   questions        Question[]
+  questionContexts QuestionContext[]
 
   @@unique([educationLevelId, code])
   @@unique([educationLevelId, slug])
@@ -125,7 +127,7 @@ model Subject {
  * (e.g., "Chapter 2: Vectors", "Chapter 4: Newtonian Mechanics")
  */
 model Chapter {
-  id                  String    @id @default(uuid())
+  id                  String            @id @default(uuid())
   subjectId           String
   chapterNumber       Int?
   name                String
@@ -133,15 +135,16 @@ model Chapter {
   description         String?
   totalEstimatedHours Float?
   weightage           Float?
-  orderIndex          Int       @default(0)
-  isActive            Boolean   @default(true)
-  isPublished         Boolean   @default(false)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  orderIndex          Int               @default(0)
+  isActive            Boolean           @default(true)
+  isPublished         Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
-  subject             Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subject             Subject           @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   topics              Topic[]
   questions           Question[]
+  questionContexts    QuestionContext[]
 
   @@unique([subjectId, slug])
   @@map("chapters")
@@ -153,26 +156,27 @@ model Chapter {
  * (e.g., "Vector Resolution", "Dot & Cross Product", "Relative Velocity")
  */
 model Topic {
-  id                 String          @id @default(uuid())
+  id                 String            @id @default(uuid())
   chapterId          String
   parentTopicId      String?
   topicNumber        String?
   name               String
   slug               String
   description        String?
-  learningObjectives String[]        @default([])
-  importanceLevel    ImportanceLevel @default(MEDIUM)
-  difficultyLevel    DifficultyLevel @default(MEDIUM)
-  orderIndex         Int             @default(0)
-  isActive           Boolean         @default(true)
-  isPublished        Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  learningObjectives String[]          @default([])
+  importanceLevel    ImportanceLevel   @default(MEDIUM)
+  difficultyLevel    DifficultyLevel   @default(MEDIUM)
+  orderIndex         Int               @default(0)
+  isActive           Boolean           @default(true)
+  isPublished        Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
-  chapter            Chapter         @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  parentTopic        Topic?          @relation("SubTopics", fields: [parentTopicId], references: [id], onDelete: SetNull)
-  subTopics          Topic[]         @relation("SubTopics")
+  chapter            Chapter           @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  parentTopic        Topic?            @relation("SubTopics", fields: [parentTopicId], references: [id], onDelete: SetNull)
+  subTopics          Topic[]           @relation("SubTopics")
   questions          Question[]
+  questionContexts   QuestionContext[]
 
   @@unique([chapterId, slug])
   @@map("topics")
@@ -207,6 +211,18 @@ enum QuestionType {
 }
 
 /**
+ * Context types for multi-context / passage questions
+ */
+enum ContextType {
+  PASSAGE
+  CASE_STUDY
+  COMPREHENSION
+  SCENARIO
+  EXPERIMENT_DATA
+  STEM
+}
+
+/**
  * Tag Model (Metadata & Tagging System)
  * Represents a reusable metadata tag with categorization, styling, and indexing.
  */
@@ -233,23 +249,19 @@ model Tag {
 }
 
 /**
- * Question Model
- * Core entity for question bank items, linked to Curriculum Taxonomy & Metadata Tags
+ * QuestionContext Model
+ * Shared context, passage, stimulus, or problem stem for Multi-Context MCQ Ingestion
  */
-model Question {
+model QuestionContext {
   id               String          @id @default(uuid())
+  title            String?         // Optional title e.g. "Scenario 1: Projectile Motion"
+  contextText      String          // Rich text / LaTeX passage or scientific stem
+  contextType      ContextType     @default(PASSAGE)
+  mediaUrl         String?         // Optional diagram or media URL
   educationLevelId String?
   subjectId        String?
   chapterId        String?
   topicId          String?
-  questionText     String
-  questionType     QuestionType    @default(MCQ)
-  options          Json?           // Array of MCQ options e.g. [{ id: "A", text: "...", isCorrect: true }]
-  correctAnswer    String?         // Option ID or answer key
-  explanation      String?         // Solution / explanation
-  difficulty       DifficultyLevel @default(MEDIUM)
-  marks            Float           @default(1.0)
-  negativeMarks    Float           @default(0.25)
   isActive         Boolean         @default(true)
   isPublished      Boolean         @default(true)
   createdAt        DateTime        @default(now())
@@ -261,6 +273,51 @@ model Question {
   chapter          Chapter?        @relation(fields: [chapterId], references: [id], onDelete: SetNull)
   topic            Topic?          @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
+  // Sub-questions linked to this passage / context
+  questions        Question[]
+
+  @@index([educationLevelId])
+  @@index([subjectId])
+  @@index([chapterId])
+  @@index([topicId])
+  @@index([isActive, isPublished])
+  @@map("question_contexts")
+}
+
+/**
+ * Question Model
+ * Core entity for question bank items, linked to Curriculum Taxonomy, Metadata Tags, and optional Context
+ */
+model Question {
+  id               String          @id @default(uuid())
+  educationLevelId String?
+  subjectId        String?
+  chapterId        String?
+  topicId          String?
+  contextId        String?         // Optional reference to shared QuestionContext
+  contextOrder     Int?            @default(0) // Order of sub-question within the context (1, 2, 3...)
+  questionText     String          // Rich text / LaTeX question body
+  questionType     QuestionType    @default(MCQ)
+  options          Json?           // Array of MCQ options e.g. [{ id: "A", text: "...", isCorrect: true }]
+  correctAnswer    String?         // Option ID or answer key (e.g., "A", "B", "C", "D")
+  explanation      String?         // Step-by-step solution / explanation (Rich text / LaTeX)
+  difficulty       DifficultyLevel @default(MEDIUM)
+  marks            Float           @default(1.0)
+  negativeMarks    Float           @default(0.25)
+  isActive         Boolean         @default(true)
+  isPublished      Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  // Curriculum Taxonomy Relations
+  educationLevel   EducationLevel?  @relation(fields: [educationLevelId], references: [id], onDelete: SetNull)
+  subject          Subject?         @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  chapter          Chapter?         @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  topic            Topic?           @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  // Context Relation (for Multi-Context / Passage-based MCQs)
+  context          QuestionContext? @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
   // Tag Relations
   tags             QuestionTag[]
 
@@ -268,6 +325,7 @@ model Question {
   @@index([subjectId])
   @@index([chapterId])
   @@index([topicId])
+  @@index([contextId])
   @@index([questionType])
   @@index([difficulty])
   @@index([isActive, isPublished])
