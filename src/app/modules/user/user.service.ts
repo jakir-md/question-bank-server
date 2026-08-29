@@ -1,44 +1,58 @@
-
-
 import { IUser } from "./user.interface";
 import bcrypt from "bcryptjs";
-import XLSX from "xlsx";
-
-import { nanoid } from "nanoid";
 import ApiError from "../../error/ApiError";
-
-
+import { prisma } from "../../../shared/prisma";
+import { Prisma } from "@prisma/client";
 
 // CREATE USER
-const RegStudentIntoDB = async (payload: Partial<IUser>) => {
+const createUserIntoDB = async (payload: Partial<IUser>) => {
   try {
-    const { name, email, regId, phone, role  , department , batch} = payload;
+    const { name, email, password, phone, role } = payload;
 
-    
-    if (!name || !email || !role || !regId || !department || !batch) {
-      throw new ApiError(400, "Name, Email, Registration ID, Department, Batch, and Role are required");
+    if (!name || !email) {
+      throw new ApiError(400, "Name and Email are required");
     }
-    
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      throw new ApiError(400, "User with this email already exists");
+    }
+
+    let hashedPassword: string | undefined = undefined;
+    if (password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
+    const result = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        phone,
+        role: role || "STUDENT",
+      },
+    });
+
+    return result;
   } catch (error: any) {
     if (error instanceof ApiError) throw error;
     throw new ApiError(500, "Internal Server Error: " + error.message);
   }
 };
 
-/* =====================================================
-   GET ALL USERS (PAGINATION + SEARCH)
-===================================================== */
+// GET ALL USERS (PAGINATION + SEARCH)
 const getAllUsersFromDB = async (
-  hallId: string,
-  page: number,
-  limit: number,
-  search: string,
+  page: number = 1,
+  limit: number = 10,
+  search: string = "",
 ) => {
   try {
     const skip = (page - 1) * limit;
-    let whereCondition: Prisma.UserWhereInput = {
-      allottedHallId: hallId,
-      isActive: IsActive.ACTIVE,
+    const whereCondition: Prisma.UserWhereInput = {
+      isActive: true,
     };
     if (search) {
       whereCondition.OR = [
@@ -49,33 +63,21 @@ const getAllUsersFromDB = async (
 
     const total = await prisma.user.count({ where: whereCondition });
 
- const users = await prisma.user.findMany({
-  where: whereCondition,
-  skip,
-  take: limit,
-  orderBy: { createdAt: "desc" },
-  
-  select: {
-    id: true,
-    name: true,
-    email: true,
-    phone: true,
-    role: true,
-    
-    isActive: true,
-    createdAt: true,
-    
-    allottedHall: { 
-      select: { id: true, name: true } 
-    },
-    temporaryHall: { 
-      select: { id: true, name: true } 
-    },
-    wallet: { 
-      select: { id: true, balance: true } 
-    },
-  },
-});
+    const users = await prisma.user.findMany({
+      where: whereCondition,
+      skip,
+      take: limit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+    });
 
     return {
       data: users,
@@ -99,8 +101,8 @@ const getUserByIdFromDB = async (id: string) => {
         id: true,
         name: true,
         email: true,
+        phone: true,
         role: true,
-        allottedHallId: true,
         isActive: true,
         createdAt: true,
       },
@@ -142,6 +144,7 @@ export const updateUserIntoDB = async (
           "This phone number is already in use by another account",
         );
       }
+      updateData.phone = payload.phone;
     }
 
     if (payload.email && payload.email !== user.email) {
@@ -170,8 +173,8 @@ export const updateUserIntoDB = async (
         id: true,
         name: true,
         email: true,
+        phone: true,
         role: true,
-        allottedHallId: true,
         isActive: true,
         updatedAt: true,
       },
@@ -180,7 +183,6 @@ export const updateUserIntoDB = async (
     return updatedUser;
   } catch (error: any) {
     if (error instanceof ApiError) throw error;
-
     throw new ApiError(500, "Failed to update user: " + error.message);
   }
 };
@@ -191,13 +193,13 @@ export const deleteUserFromDB = async (id: string) => {
     if (!user) throw new ApiError(404, "User not found");
 
     if (!user.isActive) {
-      throw new ApiError(400, "User is already deleted or inactive");
+      throw new ApiError(400, "User is already inactive");
     }
 
     const deletedUser = await prisma.user.update({
       where: { id },
       data: {
-        isActive: IsActive.INACTIVE,
+        isActive: false,
       },
       select: {
         id: true,
@@ -214,267 +216,10 @@ export const deleteUserFromDB = async (id: string) => {
   }
 };
 
-const bulkUploadStudentProvidedCredentials = async (
-  fileBuffer: Buffer,
-  userId: string,
-) => {
-  try {
-    const admin = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        allottedHallId: true,
-        allottedHall: { select: { gender: true } },
-      },
-    });
-
-    if (!admin || !admin.allottedHallId) {
-      throw new ApiError(400, "Admin is not associated with any hall");
-    }
-
-    const allHalls = await prisma.hall.findMany({
-      select: { id: true, name: true },
-    });
-
-    const hallMap = new Map(allHalls.map((h) => [h.name.toLowerCase(), h.id]));
-
-    const hallId = admin.allottedHallId;
-    const hallGender = admin.allottedHall?.gender || Gender.MALE;
-
-    const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet);
-
-    const failed: { identifier?: string; reason: string }[] = [];
-
-    const getHallIdFromExcel = (hallName: string) => {
-      let hallIdExcel = hallMap.get(hallName.toLowerCase());
-      if (hallId == hallIdExcel) {
-        hallIdExcel = allHalls.find((h) => h.id !== hallId)?.id;
-      }
-      return hallIdExcel;
-    };
-
-    for (const row of rows) {
-      const email = String(row.email || "")
-        .trim()
-        .toLowerCase();
-      const regId = String(row.regId || "").trim();
-      const phone = String(row.phone || "").trim();
-      const hallName = String(row.hallName || "").trim();
-      const name = String(row.name || "").trim();
-
-      const identifier = email || regId || phone || "Unknown";
-
-      try {
-        if (!regId && !phone && !email) {
-          throw new ApiError(400, "Name,  RegId, and Phone are all required");
-        }
-
-        const existing = await prisma.user.findFirst({
-          where: {
-            regId,
-          },
-        });
-
-        const password = nanoid(8);
-        const hashed = await bcrypt.hash(password, 10);
-
-        if (existing) {
-          if (
-            existing.allottedHallId === hallId &&
-            existing.phone === "dummy1Pho1N1"
-          ) {
-            await prisma.user.update({
-              where: { id: existing.id },
-              data: {
-                name,
-                email,
-                phone,
-                password: hashed,
-              },
-            });
-            await sendSMS(
-              phone,
-              `Welcome ${name}! Password: ${password}. Login to Ju-Hall-Coupon using your phone number ${phone}. https://amarcoupon.com/login`,
-            ).catch((err) =>
-              console.log(`Failed to send SMS to ${phone}:`, err.message),
-            );
-          }
-        } else {
-          await prisma.user.create({
-            data: {
-              name,
-              email,
-              regId,
-              phone,
-              gender: hallGender,
-              password: hashed,
-              role: Role.STUDENT,
-              hallId: getHallIdFromExcel(hallName),
-              allowedHallID: hallId,
-              isActive: IsActive.ACTIVE,
-            },
-          });
-
-          await sendSMS(
-            phone,
-            `Welcome ${name}! Password: ${password}. Login to Ju-Hall-Coupon using your phone number ${phone}. https://amarcoupon.com/login`,
-          ).catch((err) =>
-            console.log(`Failed to send SMS to ${phone}:`, err.message),
-          );
-        }
-      } catch (err: any) {
-        failed.push({ identifier, reason: err.message });
-      }
-    }
-
-    return { created: [], failed };
-  } catch (error: any) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(500, "Bulk upload failed: " + error.message);
-  }
-};
-
-const bulkUploadAuthorityProvidedCredentials = async (
-  fileBuffer: Buffer,
-  userId: string,
-) => {
-  try {
-    const admin = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        allottedHallId: true,
-        allottedHall: { select: { gender: true } },
-      },
-    });
-
-    if (!admin || !admin.allottedHallId) {
-      throw new ApiError(400, "Admin is not associated with any hall");
-    }
-
-    const hallId = admin.allottedHallId;
-    const hallGender = admin.allottedHall?.gender || Gender.MALE;
-
-    const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet);
-    const failed: { identifier?: string; reason: string }[] = [];
-
-    for (const row of rows) {
-      const name = String(row.name || "").trim();
-      const regId = String(row.regId || "").trim();
-      const identifier = name || regId || "Unknown";
-
-      try {
-        if (!regId) {
-          throw new ApiError(400, "Name,  RegId, and Phone are all required");
-        }
-
-        const existing = await prisma.user.findFirst({
-          where: {
-            regId,
-          },
-        });
-
-        if (existing) {
-          if (existing.allottedHallId !== hallId) {
-            await prisma.user.update({
-              where: { id: existing.id },
-              data: { allottedHallId: hallId, allowedHallID: hallId },
-            });
-          }
-        } else {
-          await prisma.user.create({
-            data: {
-              name,
-              regId,
-              gender: hallGender,
-              role: Role.STUDENT,
-              allottedHallId: hallId,
-              temporaryHallId: hallId,
-              isActive: IsActive.ACTIVE,
-              phone: "dummy1Pho1N1", // Dummy phone for authority-provided users
-              password: "dummy1Pass1Word",
-            },
-          });
-        }
-      } catch (err: any) {
-        failed.push({ identifier, reason: err.message });
-      }
-    }
-
-    return { created: [], failed };
-  } catch (error: any) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(500, "Bulk upload failed: " + error.message);
-  }
-};
-
-// SEARCH STUDENT BY EMAIL
-const searchStudentFromDB = async (searchTerm: string, hallId: string) => {
-  try {
-    if (!searchTerm) {
-      throw new ApiError(400, "Search term is required");
-    }
-
-    const students = await prisma.user.findMany({
-      where: {
-        role: Role.STUDENT,
-        allottedHallId: hallId,
-        OR: [
-          {
-            name: {
-              contains: searchTerm,
-              mode: "insensitive",
-            },
-          },
-          {
-            email: {
-              contains: searchTerm,
-              mode: "insensitive",
-            },
-          },
-        ],
-      },
-      take: 10,
-      // select
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        allottedHallId: true,
-        isActive: true,
-        createdAt: true,
-
-        wallet: {
-          select: {
-            id: true,
-            balance: true,
-          },
-        },
-        allottedHall: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    return students;
-  } catch (error: any) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(500, "Database error: " + error.message);
-  }
-};
-
 export const UserServices = {
   createUserIntoDB,
   getAllUsersFromDB,
   getUserByIdFromDB,
   updateUserIntoDB,
   deleteUserFromDB,
-  bulkUploadAuthorityProvidedCredentials,
-  bulkUploadStudentProvidedCredentials,
-  searchStudentFromDB,
 };
