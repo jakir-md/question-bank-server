@@ -2,6 +2,7 @@ import express from "express";
 import { AuthRoutes } from "../modules/auth/auth.router";
 import { CurriculumTaxonomyRoutes } from "../modules/curriculum-taxonomy/taxonomy.router";
 import { MCQIngestionRoutes } from "../modules/mcq-ingestion/mcq-ingestion.router";
+import { CQIngestionRoutes } from "../modules/cq-ingestion/cq-ingestion.router";
 import { QuestionRoutes } from "../modules/metadata-tagging/question-tag.router";
 import { TagRoutes } from "../modules/metadata-tagging/tag.router";
 
@@ -27,6 +28,10 @@ const appRoutes = [
   {
     path: "/mcq-ingestion",
     route: MCQIngestionRoutes,
+  },
+  {
+    path: "/cq-ingestion",
+    route: CQIngestionRoutes,
   },
 ];
 
