@@ -1,7 +1,7 @@
 /**
  * @file cq-ingestion.service.test.ts
  * @description Unit tests for Creative Question (CQ) Ingestion Service operations with mocked Prisma client.
- * Validates atomic transaction, 4 sub-questions persistence, tag resolution, queries, and stats.
+ * Validates atomic transaction, 4 sub-questions persistence, tag resolution, queries, update, deletion, and stats.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -131,6 +131,29 @@ describe("CQ Ingestion Service", () => {
     vi.clearAllMocks();
   });
 
+  describe("resolveTagIds", () => {
+    it("should resolve existing tag by name or create new custom tag", async () => {
+      (prisma.tag.findFirst as any)
+        .mockResolvedValueOnce({ id: "tag-dhaka", name: "Dhaka Board 2024" })
+        .mockResolvedValueOnce(null);
+
+      (prisma.tag.create as any).mockResolvedValueOnce({
+        id: "tag-new-custom",
+        name: "New Topic Tag",
+      });
+
+      const tagIds = await CQIngestionService.resolveTagIds(
+        ["tag-existing-id"],
+        ["Dhaka Board 2024", "New Topic Tag", "  "],
+      );
+
+      expect(tagIds).toContain("tag-existing-id");
+      expect(tagIds).toContain("tag-dhaka");
+      expect(tagIds).toContain("tag-new-custom");
+      expect(tagIds).toHaveLength(3);
+    });
+  });
+
   describe("ingestCQ", () => {
     it("should atomically ingest Uddipok stimulus and 4 structured sub-questions", async () => {
       const payload = {
@@ -157,7 +180,7 @@ describe("CQ Ingestion Service", () => {
   });
 
   describe("getCQs", () => {
-    it("should retrieve filtered paginated CQ packages", async () => {
+    it("should retrieve filtered paginated CQ packages with search & difficulty", async () => {
       const mockContexts = [
         {
           id: "ctx-1",
@@ -184,6 +207,45 @@ describe("CQ Ingestion Service", () => {
         total: 1,
         totalPages: 1,
       });
+    });
+
+    it("should filter CQs by taxonomy hierarchy (educationLevel, subject, chapter, topic)", async () => {
+      (prisma.questionContext.count as any).mockResolvedValue(1);
+      (prisma.questionContext.findMany as any).mockResolvedValue([]);
+
+      await CQIngestionService.getCQs({
+        educationLevelId: "level-1",
+        subjectId: "subject-1",
+        chapterId: "chapter-1",
+        topicId: "topic-1",
+        tags: ["Dhaka-Board", "Physics"],
+        operator: "OR",
+      });
+
+      expect(prisma.questionContext.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              { educationLevelId: "level-1" },
+              { subjectId: "subject-1" },
+              { chapterId: "chapter-1" },
+              { topicId: "topic-1" },
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it("should filter CQs by multiple tags using AND operator", async () => {
+      (prisma.questionContext.count as any).mockResolvedValue(1);
+      (prisma.questionContext.findMany as any).mockResolvedValue([]);
+
+      await CQIngestionService.getCQs({
+        tags: ["Tag1", "Tag2"],
+        operator: "AND",
+      });
+
+      expect(prisma.questionContext.findMany).toHaveBeenCalled();
     });
   });
 
@@ -212,6 +274,54 @@ describe("CQ Ingestion Service", () => {
     });
   });
 
+  describe("updateCQ", () => {
+    it("should update stimulus and sub-questions successfully", async () => {
+      const mockExisting = {
+        id: "ctx-100",
+        title: "পুরাতন দৃশ্যকল্প",
+        questions: [
+          { id: "sub-1", contextOrder: 1, marks: 1.0 },
+          { id: "sub-2", contextOrder: 2, marks: 2.0 },
+          { id: "sub-3", contextOrder: 3, marks: 3.0 },
+          { id: "sub-4", contextOrder: 4, marks: 4.0 },
+        ],
+      };
+
+      (prisma.questionContext.findUnique as any).mockResolvedValue(mockExisting);
+
+      const updatePayload = {
+        stimulus: {
+          title: "আপডেট উদ্দীপক",
+          contextText: "নতুন উদ্দীপকের লেখা...",
+        },
+        questions: [
+          {
+            label: "ক" as const,
+            cognitiveLevel: "KNOWLEDGE" as const,
+            questionText: "আপডেট ক প্রশ্ন?",
+            marks: 1.0,
+          },
+        ],
+        totalMarks: 10.0,
+      };
+
+      const result = await CQIngestionService.updateCQ("ctx-100", updatePayload);
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(result).toBeDefined();
+    });
+
+    it("should throw 404 ApiError if CQ to update does not exist", async () => {
+      (prisma.questionContext.findUnique as any).mockResolvedValue(null);
+
+      await expect(
+        CQIngestionService.updateCQ("non-existent-id", {
+          stimulus: { title: "Title" },
+        }),
+      ).rejects.toThrowError("not found");
+    });
+  });
+
   describe("deleteCQ", () => {
     it("should delete CQ and decrement tag counters", async () => {
       (prisma.questionContext.findUnique as any).mockResolvedValue({
@@ -222,6 +332,14 @@ describe("CQ Ingestion Service", () => {
       const result = await CQIngestionService.deleteCQ("ctx-100");
       expect(result.success).toBe(true);
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it("should throw 404 ApiError if CQ to delete does not exist", async () => {
+      (prisma.questionContext.findUnique as any).mockResolvedValue(null);
+
+      await expect(CQIngestionService.deleteCQ("non-existent-id")).rejects.toThrowError(
+        "not found",
+      );
     });
   });
 

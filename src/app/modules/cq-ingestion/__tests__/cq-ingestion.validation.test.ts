@@ -53,6 +53,51 @@ const validCQSubQuestions = [
 ];
 
 describe("CQ Ingestion Zod Validation Schemas", () => {
+  describe("cqSubQuestionItemSchema", () => {
+    it("should accept valid single sub-question with valid cognitive levels", () => {
+      const cognitiveLevels = ["KNOWLEDGE", "COMPREHENSION", "APPLICATION", "HIGHER_ABILITY"] as const;
+      for (const level of cognitiveLevels) {
+        const item = {
+          label: "ক",
+          cognitiveLevel: level,
+          questionText: "Sample question?",
+          marks: 1.0,
+        };
+        const res = CQValidation.cqSubQuestionItemSchema.safeParse(item);
+        expect(res.success).toBe(true);
+      }
+    });
+
+    it("should reject invalid cognitive level", () => {
+      const item = {
+        label: "ক",
+        cognitiveLevel: "INVALID_LEVEL",
+        questionText: "Sample question?",
+        marks: 1.0,
+      };
+      const res = CQValidation.cqSubQuestionItemSchema.safeParse(item);
+      expect(res.success).toBe(false);
+    });
+
+    it("should reject sub-question with marks less than 0.5 or greater than 10", () => {
+      const tooLow = {
+        label: "ক",
+        cognitiveLevel: "KNOWLEDGE",
+        questionText: "Sample question?",
+        marks: 0.1,
+      };
+      expect(CQValidation.cqSubQuestionItemSchema.safeParse(tooLow).success).toBe(false);
+
+      const tooHigh = {
+        label: "ঘ",
+        cognitiveLevel: "HIGHER_ABILITY",
+        questionText: "Sample question?",
+        marks: 15,
+      };
+      expect(CQValidation.cqSubQuestionItemSchema.safeParse(tooHigh).success).toBe(false);
+    });
+  });
+
   describe("fourSubQuestionsValidation & Acceptance Criteria", () => {
     it("should accept valid 4 structured sub-questions (ক, খ, গ, ঘ)", () => {
       const result = CQValidation.fourSubQuestionsValidation.safeParse(validCQSubQuestions);
@@ -104,6 +149,42 @@ describe("CQ Ingestion Zod Validation Schemas", () => {
         validCQSubQuestions[3],
       ];
       const result = CQValidation.fourSubQuestionsValidation.safeParse(emptyTextQuestions);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe("cqStimulusSchema", () => {
+    it("should accept valid stimulus with media URL and taxonomy IDs", () => {
+      const stimulus = {
+        title: "উদ্দীপক ১",
+        contextText: "একটি বর্তনী যাতে...",
+        contextType: "STEM" as const,
+        mediaUrl: "https://example.com/image.png",
+        educationLevelId: VALID_UUID,
+        subjectId: VALID_UUID,
+        chapterId: VALID_UUID,
+        topicId: VALID_UUID,
+      };
+
+      const result = CQValidation.cqStimulusSchema.safeParse(stimulus);
+      expect(result.success).toBe(true);
+    });
+
+    it("should accept valid stimulus with empty string as mediaUrl", () => {
+      const stimulus = {
+        contextText: "উদ্দীপক বিবরণ...",
+        mediaUrl: "",
+      };
+      const result = CQValidation.cqStimulusSchema.safeParse(stimulus);
+      expect(result.success).toBe(true);
+    });
+
+    it("should reject invalid mediaUrl format", () => {
+      const stimulus = {
+        contextText: "উদ্দীপক বিবরণ...",
+        mediaUrl: "not-a-valid-url",
+      };
+      const result = CQValidation.cqStimulusSchema.safeParse(stimulus);
       expect(result.success).toBe(false);
     });
   });
@@ -211,6 +292,21 @@ describe("CQ Ingestion Zod Validation Schemas", () => {
 
       const result = CQValidation.updateCQSchema.safeParse(payload);
       expect(result.success).toBe(true);
+    });
+
+    it("should reject update when sub-questions sum does not match updated totalMarks", () => {
+      const payload = {
+        body: {
+          questions: [
+            { label: "ক" as const, cognitiveLevel: "KNOWLEDGE" as const, questionText: "Q1", marks: 2 },
+            { label: "খ" as const, cognitiveLevel: "COMPREHENSION" as const, questionText: "Q2", marks: 2 },
+          ],
+          totalMarks: 10,
+        },
+      };
+
+      const result = CQValidation.updateCQSchema.safeParse(payload);
+      expect(result.success).toBe(false);
     });
   });
 });

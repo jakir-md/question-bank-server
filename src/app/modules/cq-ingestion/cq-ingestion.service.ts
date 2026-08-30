@@ -28,7 +28,7 @@ import { calculatePagination, getDefaultCategoryColor, getDefaultCategoryIcon, s
  * @param tagNames - Optional array of tag names (e.g. "Dhaka Board 2024")
  * @returns Array of unique resolved Tag UUIDs
  */
-async function resolveTagIds(tagIds?: string[], tagNames?: string[]): Promise<string[]> {
+export async function resolveTagIds(tagIds?: string[], tagNames?: string[]): Promise<string[]> {
   const resolvedIds: string[] = [...(tagIds || [])];
 
   if (tagNames && tagNames.length > 0) {
